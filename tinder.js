@@ -2,6 +2,7 @@
 const fetch = require('node-fetch')
 const fs = require('fs')
 const util = require('util')
+const process = require('process');
 const writeToFile = util.promisify(fs.writeFile)
 
 // x-auth-token - readme.md
@@ -9,6 +10,12 @@ const token = ''
 
 if (!token) {
   throw new Error('No token provided - read the README.md')
+}
+
+const linksuffix = ''
+
+if (!linksuffix) {
+  throw new Error('No linksuffix provided - read the README.md')
 }
 
 const headers = {
@@ -20,8 +27,18 @@ const headers = {
 const fetchData = async (url, method = 'GET', body) => {
   try {
     console.log('Getting:', url)
-    const res = await fetch(`https://api.gotinder.com/${url}`, { method, body, headers })
-    return await res.json()
+    let res;
+    do {
+      // I was often getting 503 - Service Unavailable resulting in only 15-20% matches getting fetched. With this I get 100%. There sure is some room for infinite loop here tho :P
+      res = await fetch(`https://api.gotinder.com/${url}`, { method, body, headers })
+    } while (res.status != 200);
+
+  if (res.status != 200) {
+      console.log('Not 200: ', res)
+    }
+    const json = await res.json();
+    console.log('Response from', `https://api.gotinder.com/${url}`, json)
+    return json;
   } catch (e) {
     console.log('Something broke', e)
   }
@@ -55,7 +72,8 @@ const getProfile = async id => {
   const data = (await fetchData(`user/${id}?locale=en-GB`)) || { results: {}}
   const { name, distance_mi } = data.results
   console.log(name)
-  return { name, distance_mi, id }
+  const link = 'https://tinder.com/app/messages/' + id + linksuffix
+  return { name, distance_mi, id,  link}
 }
 
 // fix auth ? idk how to make work
@@ -77,9 +95,9 @@ const chunk = (arr, size = 20) => {
 const run = async () => {
   // await auth()
 
-  const { pos_info } = await fetchData('/profile')
+  const { pos_info } = await fetchData('profile')
 
-  console.log(`Swiping in: ${pos_info.country.name} ${pos_info.city.name}`)
+  console.log(`Swiping in: ${pos_info.country.name} ${pos_info.city?.name || ''}`)
 
   // the number here is 1 = matches with messages, 0 = matches with no messages
   const firstMatches = await getMatches(1)
@@ -100,7 +118,7 @@ const run = async () => {
     userProfiles.push(...profiles)
     userProfiles = userProfiles.sort((a, b) => a.distance_mi - b.distance_mi)
     await writeToFile(
-      `results/${pos_info.country.name}_${pos_info.city.name}.json`,
+      `results/${pos_info.country.name}_${pos_info.city?.name || ''}.json`,
       JSON.stringify(userProfiles, null, 4)
     )
   }
